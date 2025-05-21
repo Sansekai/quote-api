@@ -181,22 +181,25 @@ class QuoteGenerate {
       try {
         let userPhoto, userPhotoUrl
 
-        if (user.photo && user.photo.big_file_id) userPhotoUrl = await this.telegram.getFileLink(user.photo.big_file_id).catch(console.error)
+        if (user.photo && user.photo.big_file_id) userPhotoUrl = await this.telegram.getFileLink(user.photo.big_file_id).catch(() => {})
 
         if (!userPhotoUrl) {
-          const getChat = await this.telegram.getChat(user.id).catch(console.error)
+          const getChat = await this.telegram.getChat(user.id).catch(() => {})
+
           if (getChat && getChat.photo && getChat.photo.big_file_id) userPhoto = getChat.photo.big_file_id
 
-          if (userPhoto) userPhotoUrl = await this.telegram.getFileLink(userPhoto)
+          if (userPhoto) userPhotoUrl = await this.telegram.getFileLink(userPhoto).catch(() => {})
+
           else if (user.username) userPhotoUrl = `https://telega.one/i/userpic/320/${user.username}.jpg`
-          else avatarImage = await loadImage(await this.avatarImageLatters(nameLatters, avatarColor))
+
+          else avatarImage = await loadImage(await this.avatarImageLatters(nameLatters, avatarColor)).catch(() => {})
         }
 
-        if (userPhotoUrl) avatarImage = await loadImage(userPhotoUrl)
+        if (userPhotoUrl) avatarImage = await loadImage(userPhotoUrl).catch(() => {})
 
         avatarCache.set(cacheKey, avatarImage)
       } catch (error) {
-        avatarImage = await loadImage(await this.avatarImageLatters(nameLatters, avatarColor))
+        avatarImage = await loadImage(await this.avatarImageLatters(nameLatters, avatarColor)).catch(() => {})
       }
     }
 
@@ -221,6 +224,10 @@ class QuoteGenerate {
       const imageSharp = sharp(load)
       const imageMetadata = await imageSharp.metadata()
       const sharpPng = await imageSharp.png({ lossless: true, force: true }).toBuffer()
+
+      if (!imageMetadata || !imageMetadata.width || !imageMetadata.height || !sharpPng) {
+        return loadImage(load)
+      }
 
       let croppedImage
 
@@ -663,15 +670,16 @@ class QuoteGenerate {
     canvasCtx.arcTo(x + w, y + h, x, y + h, r)
     canvasCtx.arcTo(x, y + h, x, y, r)
     canvasCtx.arcTo(x, y, x + w, y, r)
+    canvasCtx.save()
     canvasCtx.clip()
     canvasCtx.closePath()
-    canvasCtx.restore()
     canvasCtx.drawImage(image, x, y)
+    canvasCtx.restore()
 
     return canvas
   }
 
-  deawReplyLine (lineWidth, height, color) {
+  drawReplyLine (lineWidth, height, color) {
     const canvas = createCanvas(20, height)
     const context = canvas.getContext('2d')
     context.beginPath()
@@ -680,12 +688,13 @@ class QuoteGenerate {
     context.lineWidth = lineWidth
     context.strokeStyle = color
     context.stroke()
+    context.closePath()
 
     return canvas
   }
 
   async drawAvatar (user) {
-    const avatarImage = await this.downloadAvatarImage(user)
+    const avatarImage = await this.downloadAvatarImage(user).catch(() => {})
 
     if (avatarImage) {
       const avatarSize = avatarImage.naturalHeight
@@ -761,7 +770,7 @@ class QuoteGenerate {
     if (name && width < name.width + indent) width = name.width + indent
     if (replyName) {
       if (width < replyName.width) width = replyName.width + indent * 2
-      if (width < replyText.width) width = replyText.width + indent * 2
+      if (replyText && width < replyText.width) width = replyText.width + indent * 2
     }
 
     let height = indent
@@ -796,7 +805,7 @@ class QuoteGenerate {
     let replyNamePosY = 0
     let replyTextPosY = 0
 
-    if (replyName) {
+    if (replyName && replyText) {
       replyPosX = textPosX + indent
 
       const replyNameHeight = replyName.height
@@ -841,16 +850,18 @@ class QuoteGenerate {
       textPosY = mediaPosY + mediaHeight + 5 * scale
     }
 
+    // Declare rectWidth and rectHeight variables before using them
+    let rectWidth = width - blockPosX
+    let rectHeight = height
+
     if (mediaType === 'sticker' && (name || replyName)) {
-      mediaPosY += indent * 4
-      height += indent * 2
+      rectHeight = replyName && replyText ? (replyName.height + replyText.height * 0.5) + indent * 2 : indent * 2
+      backgroundColorOne = backgroundColorTwo = 'rgba(0, 0, 0, 0.5)'
     }
 
     const canvas = createCanvas(width, height)
     const canvasCtx = canvas.getContext('2d')
 
-    let rectWidth = width - blockPosX
-    let rectHeight = height
     const rectPosX = blockPosX
     const rectPosY = blockPosY
     const rectRoundRadius = 25 * scale
@@ -875,8 +886,8 @@ class QuoteGenerate {
     if (text) canvasCtx.drawImage(text, textPosX, textPosY)
     if (media) canvasCtx.drawImage(this.roundImage(media, 5 * scale), mediaPosX, mediaPosY, mediaWidth, mediaHeight)
 
-    if (replyName) {
-      canvasCtx.drawImage(this.deawReplyLine(3 * scale, replyName.height + replyText.height * 0.4, replyNameColor), textPosX - 3, replyNamePosY)
+    if (replyName && replyText) {
+      canvasCtx.drawImage(this.drawReplyLine(3 * scale, replyName.height + replyText.height * 0.4, replyNameColor), textPosX - 3, replyNamePosY)
 
       canvasCtx.drawImage(replyName, replyPosX, replyNamePosY)
       canvasCtx.drawImage(replyText, replyPosX, replyTextPosY)
@@ -898,7 +909,7 @@ class QuoteGenerate {
   getLineDirection (words, start_index) {
     const RTLMatch = /[\u0591-\u07FF\u200F\u202B\u202E\uFB1D-\uFDFD\uFE70-\uFEFC]/
     const neutralMatch = /[\u0000-\u0040\u005B-\u0060\u007B-\u00BF\u00D7\u00F7\u02B9-\u02FF\u2000-\u2BFF\u2010-\u2029\u202C\u202F-\u2BFF\u1F300-\u1F5FF\u1F600-\u1F64F]/
-    
+
     for (let index = start_index; index < words.length; index++) {
       if (words[index].word.match(RTLMatch)) {
         return 'rtl'
@@ -913,6 +924,8 @@ class QuoteGenerate {
   async generate (backgroundColorOne, backgroundColorTwo, message, width = 512, height = 512, scale = 2, emojiBrand = 'apple') {
     if (!scale) scale = 2
     if (scale > 20) scale = 20
+    width = width || 512  // Ensure width has a default value
+    height = height || 512 // Ensure height has a default value
     width *= scale
     height *= scale
 
@@ -962,7 +975,7 @@ class QuoteGenerate {
 
     // user name  color
     let nameIndex = 1
-    if (message.from.id) nameIndex = Math.abs(message.from.id) % 7
+    if (message.from && message.from.id) nameIndex = Math.abs(message.from.id) % 7
 
     const nameColorArray = backStyle === 'light' ? nameColorLight : nameColorDark
 
@@ -979,8 +992,10 @@ class QuoteGenerate {
     const nameSize = 22 * scale
 
     let nameCanvas
-    if (message?.from?.name) {
-      let name = message.from.name
+    if (message?.from?.name || (message?.from?.first_name || message?.from?.last_name)) {
+      let name = message.from.name || `${message.from.first_name || ''} ${message.from.last_name || ''}`.trim()
+
+      if (!name) name = "User" // Default name if none provided
 
       const nameEntities = [
         {
@@ -1035,15 +1050,17 @@ class QuoteGenerate {
     }
 
     let avatarCanvas
-    if (message.avatar) avatarCanvas = await this.drawAvatar(message.from)
+    if (message.avatar && message.from) avatarCanvas = await this.drawAvatar(message.from)
 
     let replyName, replyNameColor, replyText
     if (message.replyMessage && message.replyMessage.name && message.replyMessage.text) {
-      const replyNameIndex = Math.abs(message.replyMessage.chatId) % 7
-      replyNameColor = nameColorArray[replyNameIndex]
+      try {
+        // Ensure chatId exists to prevent NaN in calculations
+        const chatId = message.replyMessage.chatId || 0
+        const replyNameIndex = Math.abs(chatId) % 7
+        replyNameColor = nameColorArray[replyNameIndex]
 
-      const replyNameFontSize = 16 * scale
-      if (message.replyMessage.name) {
+        const replyNameFontSize = 16 * scale
         replyName = await this.drawMultilineText(
           message.replyMessage.name,
           'bold',
@@ -1055,23 +1072,28 @@ class QuoteGenerate {
           replyNameFontSize,
           emojiBrand
         )
+
+        let textColor = '#fff'
+        if (backStyle === 'light') textColor = '#000'
+
+        const replyTextFontSize = 21 * scale
+        replyText = await this.drawMultilineText(
+          message.replyMessage.text,
+          message.replyMessage.entities || [],
+          replyTextFontSize,
+          textColor,
+          0,
+          replyTextFontSize,
+          width * 0.9,
+          replyTextFontSize,
+          emojiBrand
+        )
+      } catch (error) {
+        console.error("Error generating reply message:", error)
+        // If reply message generation fails, continue without it
+        replyName = null
+        replyText = null
       }
-
-      let textColor = '#fff'
-      if (backStyle === 'light') textColor = '#000'
-
-      const replyTextFontSize = 21 * scale
-      replyText = await this.drawMultilineText(
-        message.replyMessage.text,
-        message.replyMessage.entities,
-        replyTextFontSize,
-        textColor,
-        0,
-        replyTextFontSize,
-        width * 0.9,
-        replyTextFontSize,
-        emojiBrand
-      )
     }
 
     let mediaCanvas, mediaType, maxMediaSize

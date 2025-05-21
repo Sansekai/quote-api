@@ -80,14 +80,54 @@ module.exports = async (parm) => {
     const message = parm.messages[key]
 
     if (message) {
+      // Ensure message has the required structure to prevent errors
+      if (!message.from) {
+        message.from = { id: 0 }
+      }
+
+      // Ensure from object has photo property
+      if (!message.from.photo) {
+        message.from.photo = {}
+      }
+
+      // Make sure name exists in from object
+      if (!message.from.name && (message.from.first_name || message.from.last_name)) {
+        message.from.name = [message.from.first_name, message.from.last_name]
+          .filter(Boolean)
+          .join(' ')
+      }
+
+      // Ensure reply message has required structure to prevent errors
+      if (message.replyMessage) {
+        // Initialize chatId if missing - required for replyNameIndex calculation
+        if (!message.replyMessage.chatId) {
+          message.replyMessage.chatId = message.from?.id || 0
+        }
+
+        // Ensure entities array exists
+        if (!message.replyMessage.entities) {
+          message.replyMessage.entities = []
+        }
+
+        // Ensure the reply message has a from property if needed
+        if (!message.replyMessage.from) {
+          message.replyMessage.from = {
+            name: message.replyMessage.name,
+            photo: {}
+          }
+        } else if (!message.replyMessage.from.photo) {
+          message.replyMessage.from.photo = {}
+        }
+      }
+
       const canvasQuote = await quoteGenerate.generate(
         backgroundColorOne,
         backgroundColorTwo,
         message,
         parm.width,
         parm.height,
-        parseFloat(parm.scale),
-        parm.emojiBrand
+        parseFloat(parm.scale) || 2, // Default scale to 2 if not provided
+        parm.emojiBrand || 'apple'   // Default emoji brand to apple if not provided
       )
 
       quoteImages.push(canvasQuote)
